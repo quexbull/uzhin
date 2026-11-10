@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#12061a">
+<title>♥</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #12061a;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none; user-select: none; touch-action: none;
+  }
+  body { background: radial-gradient(ellipse at 50% 42%, #3a0f33 0%, #12061a 65%); }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  #glow {
+    position: fixed; left: 50%; top: 46%;
+    width: 90vmin; height: 90vmin; margin: -45vmin 0 0 -45vmin;
+    background: radial-gradient(circle, rgba(255,77,125,.38) 0%, rgba(255,77,125,0) 62%);
+    animation: beat 1.4s ease-in-out infinite;
+    transition: opacity 1.5s ease; pointer-events: none;
+  }
+  #glow.done { animation: none; opacity: .3; }
+  @keyframes beat {
+    0%, 100% { transform: scale(.9); opacity: .55; }
+    10% { transform: scale(1.08); opacity: 1; }
+    32% { transform: scale(1); opacity: .8; }
+  }
+
+  #top {
+    position: fixed; left: 0; right: 0;
+    top: calc(env(safe-area-inset-top, 0px) + 8vh);
+    padding: 0 8vw; box-sizing: border-box; text-align: center;
+    font: italic 400 clamp(21px, 6vw, 30px)/1.4 ui-serif, "New York", Georgia, serif;
+    color: #ffd9e4; text-shadow: 0 0 18px rgba(255, 77, 125, .55);
+    transition: opacity .6s ease, transform .6s ease; pointer-events: none;
+  }
+  #top.gone { opacity: 0; transform: translateY(-16px); }
+  .caret {
+    display: inline-block; width: 2px; height: 1em; margin-left: 3px;
+    background: #ff5c8a; vertical-align: -0.15em; animation: blink .9s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  #tap {
+    position: fixed; left: 0; right: 0; height: 40px; margin-top: -20px;
+    display: flex; align-items: center; justify-content: center;
+    font: 700 21px/1 -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: .02em; color: #fff;
+    text-shadow: 0 0 14px rgba(255, 77, 125, .9), 0 0 4px rgba(255, 77, 125, .8);
+    opacity: 0; pointer-events: none;
+    animation: tapIn .8s ease 2s forwards, tapBeat 1.4s ease-in-out 2.8s infinite;
+  }
+  #tap.gone { animation: none; opacity: 0; }
+  @keyframes tapIn { to { opacity: 1; } }
+  @keyframes tapBeat {
+    0%, 100% { transform: scale(1); }
+    10% { transform: scale(1.14); }
+    32% { transform: scale(1.04); }
+  }
+</style>
+</head>
+<body>
+<div id="glow"></div>
+<canvas id="c"></canvas>
+<div id="top"><span id="tt"></span><span class="caret"></span></div>
+<div id="tap">Нажми</div>
+
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  const glow = document.getElementById('glow');
+  const topEl = document.getElementById('top');
+  const tapEl = document.getElementById('tap');
+  const tt = document.getElementById('tt');
+
+  const TEXT = 'Поужинаем?';
+  const CH = '01{}[]()<>/\\|;:=+-*&%$#@!?~^_λπΣ∆';
+  const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  const FAM = '-apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif';
+  const rc = () => CH[(Math.random() * CH.length) | 0];
+  const pick = a => a[(Math.random() * a.length) | 0];
+  const HC = ['#ff3d71', '#ff4d7d', '#ff6b94', '#ff7fa6', '#e8326a', '#ff5c8a'];
+  const TC = ['#ffe3ec', '#ffd0df', '#fff0f5', '#ffc2d6', '#ffffff'];
+
+  let W, H, dpr, cx, cy, hStep, fsT, labelY, textY;
+  let heartT = [], parts = [], cols = [], letters = [], sparks = [], rings = [];
+  let phase = 0, rb = 0.3, rbBase = 0.3, doneT = 0, shockT = 0;
+  let shakeUntil = 0, shakeDur = 1, shakeAmp = 0, flashT0 = -9, flashDur = 1, flashAmp = 0;
+
+  // надпись сверху печатается как в терминале
+  const msg = 'Кажется, у меня\nесть кое-что для тебя';
+  let ti = 0;
+  setTimeout(function type() {
+    ti++;
+    tt.innerHTML = msg.slice(0, ti).replace('\n', '<br>');
+    if (ti < msg.length) setTimeout(type, 55);
+  }, 700);
+
+  function sample(draw, step) {
+    const o = document.createElement('canvas');
+    o.width = W; o.height = H;
+    const c = o.getContext('2d');
+    draw(c);
+    const d = c.getImageData(0, 0, W, H).data;
+    const pts = [];
+    for (let y = step / 2; y < H; y += step)
+      for (let x = step / 2; x < W; x += step)
+        if (d[(((y | 0) * W) + (x | 0)) * 4 + 3] > 128) pts.push([x, y]);
+    return pts;
+  }
+
+  function layout() {
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    W = Math.round(innerWidth); H = Math.round(innerHeight);
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+    // сердце (в центре пусто под "Нажми")
+    const s = Math.min(W * 0.8, H * 0.46), k = s / 34;
+    hStep = Math.max(8, Math.round(s / 26));
+    cx = W / 2; cy = H * 0.46; textY = H * 0.46;
+    labelY = cy - s * 0.03;
+    tapEl.style.top = labelY + 'px';
+    heartT = sample(c => {
+      c.fillStyle = '#000'; c.beginPath();
+      for (let i = 0; i <= 120; i++) {
+        const t = i / 120 * Math.PI * 2;
+        const x = 16 * Math.pow(Math.sin(t), 3);
+        const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+        const px = cx + x * k, py = cy + (y - 2.5) * k;
+        i ? c.lineTo(px, py) : c.moveTo(px, py);
+      }
+      c.closePath(); c.fill();
+    }, hStep).filter(([x, y]) => !(Math.abs(x - cx) < 48 && Math.abs(y - labelY) < 20));
+
+    // буквы итоговой надписи: чёткий жирный шрифт, каждая в своей ячейке
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = '900 100px ' + FAM;
+    fsT = Math.min(100 * (W * 0.9) / m.measureText(TEXT).width, H * 0.22);
+    m.font = '900 ' + fsT + 'px ' + FAM;
+    const ws = [...TEXT].map(ch => m.measureText(ch).width);
+    const total = ws.reduce((a, b) => a + b, 0);
+    let x = (W - total) / 2;
+    letters = [...TEXT].map((ch, i) => {
+      const L = { i, ch, x: x + ws[i] / 2, locked: false, lockAt: 0, lockedT: 0,
+                  g: rc(), scr: 0, last: i === TEXT.length - 1 };
+      x += ws[i];
+      return L;
+    });
+
+    cols = [];
+    for (let i = 0; i < Math.ceil(W / 16); i++)
+      cols.push({ x: i * 16 + 8, y: Math.random() * H, sp: 50 + Math.random() * 110,
+                  len: 6 + ((Math.random() * 12) | 0), ch: Array.from({ length: 18 }, rc) });
+  }
+
+  function mk(tx, ty) {
+    return { x: tx, y: ty, tx, ty, vx: 0, vy: 0, ch: rc(), state: 'fly', delay: 0,
+             K: 90 + Math.random() * 70, big: true, col: pick(HC), ph: Math.random() * 6.28,
+             fl: 0, scr: 0, bt: 0, al: 1, set: false, heart: true };
+  }
+
+  function init(ph, instant) {
+    phase = ph; parts = []; sparks = []; rings = [];
+    if (ph === 0) {
+      for (const [x, y] of heartT) {
+        const p = mk(x, y);
+        if (instant) p.set = true;
+        else { p.x = Math.random() * W; p.y = -Math.random() * H * 0.6 - 10; p.delay = Math.random() * 1.1; }
+        parts.push(p);
+      }
+    } else {
+      const t = performance.now() / 1000;
+      letters.forEach(L => { L.locked = true; L.lockedT = t - 5; });
+      glow.classList.add('done'); topEl.classList.add('gone'); tapEl.classList.add('gone');
+      rbBase = 0.2; rb = 0.2; doneT = t - 5;
+    }
+  }
+
+  function tap() {
+    if (phase !== 0) return;
+    const t = performance.now() / 1000;
+    phase = 1; rb = 1; rbBase = 0.2; doneT = 0; shockT = t;
+    topEl.classList.add('gone'); tapEl.classList.add('gone'); glow.classList.add('done');
+    flash(t, 0.35, 0.28); shake(t, 0.3, 5);
+    rings.push({ x: cx, y: cy, t0: t, sp: 1100, dur: 1.4, w: 5 }, { x: cx, y: cy, t0: t + 0.14, sp: 900, dur: 1.4, w: 4 });
+    letters.forEach(L => { L.locked = false; L.lockAt = t + 0.6 + L.i * 0.16 + 0.62; L.g = rc(); });
+    const idx = parts.map((_, i) => i).sort(() => Math.random() - 0.5);
+    idx.forEach((pi, n) => {
+      const p = parts[pi], li = n % letters.length;
+      const a = Math.atan2(p.y - cy, p.x - cx) + (Math.random() - 0.5) * 0.6;
+      const sp = 300 + Math.random() * 500;
+      p.vx = Math.cos(a) * sp - Math.sin(a) * sp * 0.7;     // разлёт с закруткой
+      p.vy = Math.sin(a) * sp + Math.cos(a) * sp * 0.7;
+      p.state = 'burst'; p.bt = 0.4 + Math.random() * 0.2; p.heart = false; p.set = false;
+      p.li = li; p.diveAt = t + 0.55 + li * 0.16 + Math.random() * 0.05;
+    });
+  }
+  addEventListener('pointerdown', tap);
+
+  function flash(t, dur, amp) { flashT0 = t; flashDur = dur; flashAmp = amp; }
+  function shake(t, dur, amp) { shakeUntil = t + dur; shakeDur = dur; shakeAmp = amp; }
+  function burstSparks(x, y, n, hearts) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 6.2832, sp = 120 + Math.random() * 380;
+      sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, l: 0.7 + Math.random() * 0.6, ml: 1.2,
+                    ch: hearts && Math.random() < 0.4 ? '♥' : rc(), col: Math.random() < 0.5 ? pick(TC) : pick(HC) });
+    }
+  }
+  function lock(L, t) {
+    L.locked = true; L.lockedT = t;
+    burstSparks(L.x, textY, L.last ? 80 : 16, L.last);
+    rings.push({ x: L.x, y: textY, t0: t, sp: L.last ? 1000 : 420, dur: L.last ? 1.2 : 0.7, w: L.last ? 5 : 3 });
+    shake(t, 0.15, 3);
+    if (L.last) {
+      flash(t, 0.55, 0.32); shake(t, 0.5, 9); doneT = t; rb = 1;
+      rings.push({ x: W / 2, y: textY, t0: t + 0.1, sp: 900, dur: 1.4, w: 4 });
+    }
+  }
+
+  function pulse(t) {
+    const m = (t % 1.4) / 1.4;
+    return Math.exp(-Math.pow((m - 0.1) / 0.06, 2)) + 0.6 * Math.exp(-Math.pow((m - 0.32) / 0.07, 2));
+  }
+
+  function drawLetters(t, dt) {
+    const e = t - shockT;
+    const grad = ctx.createLinearGradient(0, textY - fsT * 0.55, 0, textY + fsT * 0.55);
+    grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.5, '#ffd0df'); grad.addColorStop(1, '#ff7fa6');
+    const sweepX = doneT ? (((t - doneT) * 0.4) % 1.7 - 0.3) * W : -999;
+    for (const L of letters) {
+      if (!L.locked && t >= L.lockAt) lock(L, t);
+      if (!L.locked) {                                  // «расшифровка»: ячейка крутит символы
+        if (e < 0.5) continue;
+        L.scr -= dt; if (L.scr <= 0) { L.g = rc(); L.scr = 0.045; }
+        ctx.globalAlpha = Math.min(1, (e - 0.5) / 0.4) * 0.9;
+        ctx.font = '700 ' + fsT * 0.8 + 'px ' + MONO;
+        ctx.fillStyle = '#ff7fa6';
+        ctx.fillText(L.g, L.x, textY);
+        continue;
+      }
+      const a = t - L.lockedT;
+      const s = a < 0.35 ? 1 + 0.6 * Math.pow(1 - a / 0.35, 2) : 1;
+      const bob = Math.sin(t * 2.2 + L.i * 0.6) * 2 * Math.min(1, a);
+      ctx.save();
+      ctx.translate(L.x, textY + bob); ctx.scale(s, s);
+      ctx.font = '900 ' + fsT + 'px ' + FAM;
+      ctx.globalAlpha = 1;
+      if (a < 0.45) {                                   // глитч с цветным сдвигом
+        const off = 10 * (1 - a / 0.45);
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = '#8a5cff'; ctx.fillText(L.ch, -off, 0);
+        ctx.fillStyle = '#ff2d6f'; ctx.fillText(L.ch, off, 0);
+        ctx.globalAlpha = 1;
+      }
+      ctx.shadowColor = '#ff3d71';
+      ctx.shadowBlur = 14 + 40 * Math.max(0, 1 - a / 0.8);
+      ctx.fillStyle = a < 0.2 ? '#fff' : grad;
+      ctx.fillText(L.ch, 0, 0);
+      ctx.shadowBlur = 0;
+      const w = Math.exp(-Math.pow((L.x - sweepX) / 70, 2));   // бегущий блик
+      if (w > 0.03) { ctx.globalAlpha = w * 0.85; ctx.fillStyle = '#fff'; ctx.fillText(L.ch, 0, 0); }
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const t = now / 1000;
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    if (t < shakeUntil) {
+      const k = shakeAmp * (shakeUntil - t) / shakeDur;
+      ctx.translate((Math.random() - 0.5) * 2 * k, (Math.random() - 0.5) * 2 * k);
+    }
+
+    // вспышка
+    const fe = t - flashT0;
+    if (fe >= 0 && fe < flashDur) {
+      ctx.globalAlpha = flashAmp * (1 - fe / flashDur); ctx.fillStyle = '#ff4d7d';
+      ctx.fillRect(-20, -20, W + 40, H + 40);
+    }
+    // волны
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const r = rings[i], e = t - r.t0;
+      if (e > r.dur) { rings.splice(i, 1); continue; }
+      if (e < 0) continue;
+      const pr = e / r.dur;
+      ctx.globalAlpha = 0.8 * (1 - pr); ctx.strokeStyle = '#ff8fb0';
+      ctx.lineWidth = 1 + r.w * (1 - pr);
+      ctx.beginPath(); ctx.arc(r.x, r.y, e * r.sp, 0, 6.2832); ctx.stroke();
+    }
+
+    // фон: дождь из кода
+    rb = rbBase + (rb - rbBase) * Math.exp(-dt * 0.8);
+    ctx.font = '400 14px ' + MONO;
+    ctx.fillStyle = '#ff5c8a';
+    for (const c of cols) {
+      c.y += c.sp * dt * (1 + rb * 0.6);
+      if (c.y - c.len * 14 > H) { c.y = -Math.random() * 200; c.sp = 50 + Math.random() * 110; }
+      if (Math.random() < 0.1) c.ch[(Math.random() * 18) | 0] = rc();
+      for (let j = 0; j < c.len; j++) {
+        ctx.globalAlpha = (1 - j / c.len) * 0.55 * rb;
+        ctx.fillText(c.ch[j], c.x, c.y - j * 14);
+      }
+    }
+
+    if (phase === 1) drawLetters(t, dt);
+
+    // сердечки всплывают после финала
+    if (doneT && t > doneT + 0.6 && Math.random() < dt * 3)
+      parts.push({ x: Math.random() * W, y: H + 10, vy: -(50 + Math.random() * 70), ch: '♥',
+                   col: pick(HC), big: true, state: 'float', ph: Math.random() * 6.28, al: 0.9, fl: 0, heart: false });
+
+    // частицы
+    const beat = 1 + 0.07 * pulse(t);
+    ctx.font = '700 ' + hStep * 1.2 + 'px ' + MONO;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      let streak = false;
+      if (p.state === 'fly') {                          // сердце собирается пружиной
+        if (p.set) {
+          if (Math.random() < 0.003) { p.ch = rc(); p.fl = 0.25; }
+          if (p.fl > 0) p.fl -= dt;
+        } else if (p.delay > 0) {
+          p.delay -= dt;
+        } else {
+          p.vx += (p.tx - p.x) * p.K * dt; p.vy += (p.ty - p.y) * p.K * dt;
+          const d = Math.exp(-11 * dt); p.vx *= d; p.vy *= d;
+          p.x += p.vx * dt; p.y += p.vy * dt;
+          if (Math.hypot(p.tx - p.x, p.ty - p.y) < 0.7 && Math.hypot(p.vx, p.vy) < 18) {
+            p.x = p.tx; p.y = p.ty; p.vx = p.vy = 0; p.set = true; p.fl = 0.3;
+          } else { p.scr -= dt; if (p.scr <= 0) { p.ch = rc(); p.scr = 0.05; } }
+        }
+      } else if (p.state === 'burst') {
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        const d = Math.exp(-3 * dt); p.vx *= d; p.vy *= d;
+        p.bt -= dt; p.scr -= dt; if (p.scr <= 0) { p.ch = rc(); p.scr = 0.06; }
+        if (p.bt <= 0) p.state = 'wait';
+      } else if (p.state === 'wait') {
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        const d = Math.exp(-2.5 * dt); p.vx *= d; p.vy *= d;
+        p.scr -= dt; if (p.scr <= 0) { p.ch = rc(); p.scr = 0.06; }
+        if (t >= p.diveAt) {                            // втягивается в свою букву
+          const L = letters[p.li];
+          p.state = 'dive'; p.u = 0; p.dur = 0.4 + Math.random() * 0.15;
+          p.sx = p.x; p.sy = p.y;
+          const dx = L.x - p.x, dy = textY - p.y, len = Math.hypot(dx, dy) || 1;
+          const off = (Math.random() < 0.5 ? -1 : 1) * (80 + Math.random() * 120);
+          p.qx = (p.x + L.x) / 2 - dy / len * off; p.qy = (p.y + textY) / 2 + dx / len * off;
+          p.px = p.x; p.py = p.y;
+        }
+      } else if (p.state === 'dive') {
+        p.u += dt / p.dur;
+        if (p.u >= 1) { parts.splice(i, 1); continue; }
+        const u = Math.pow(p.u, 2.2), L = letters[p.li], v = 1 - u;
+        p.px = p.x; p.py = p.y;
+        p.x = v * v * p.sx + 2 * v * u * p.qx + u * u * L.x;
+        p.y = v * v * p.sy + 2 * v * u * p.qy + u * u * textY;
+        streak = true;
+      } else if (p.state === 'float') {
+        p.y += p.vy * dt; p.x += Math.sin(t * 2 + p.ph) * 0.4; p.al -= dt * 0.12;
+        if (p.y < -20 || p.al <= 0) { parts.splice(i, 1); continue; }
+      }
+
+      let dx = p.x, dy = p.y;
+      if (phase === 0 && p.heart) { dx = cx + (p.x - cx) * beat; dy = cy + (p.y - cy) * beat; }
+      if (streak) {
+        ctx.globalAlpha = 0.55; ctx.strokeStyle = '#ff9ab8'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(p.px, p.py); ctx.lineTo(dx, dy); ctx.stroke();
+      }
+      ctx.fillStyle = p.fl > 0 ? '#fff' : p.col;
+      ctx.globalAlpha = p.state === 'float' ? Math.max(0, p.al) : 1;
+      ctx.fillText(p.ch, dx, dy);
+    }
+
+    // искры
+    ctx.font = '700 15px ' + MONO;
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.l -= dt;
+      if (s.l <= 0) { sparks.splice(i, 1); continue; }
+      s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 220 * dt;
+      const d = Math.exp(-1.5 * dt); s.vx *= d;
+      ctx.globalAlpha = Math.min(1, s.l / 0.5); ctx.fillStyle = s.col;
+      ctx.fillText(s.ch, s.x, s.y);
+    }
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(frame);
+  }
+
+  let rt;
+  addEventListener('resize', () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => { layout(); init(phase === 0 ? 0 : 1, true); }, 150);
+  });
+
+  layout();
+  init(0, false);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
